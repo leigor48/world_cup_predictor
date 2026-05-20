@@ -1,0 +1,22 @@
+# Virtual Environment (wichtig!)
+.venv/
+venv/
+env/
+
+# Daten
+data/
+
+# Modelle
+models/*.joblib
+models/*.pkl
+models/*.h5
+
+# Python Caches & Jupyter
+__pycache__/
+*.py[cod]
+*$py.class
+.ipynb_checkpoints/
+
+# OS generierte Dateien
+.DS_Store
+Thumbs.db
