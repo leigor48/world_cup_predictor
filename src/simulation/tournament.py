@@ -6,7 +6,7 @@ import joblib
 from collections import defaultdict
 
 def simulate_tournament(model_name="xgboost_wm_modelV4.joblib", num_simulations=1000):
-    """Simulates multiple complete World Cup tournaments (Group Stage + Bracket) using the specified model."""
+    """Simulates multiple complete World Cup tournaments (Group Stage + Bracket) with smart co-host home advantage."""
     model_path = os.path.join('models', model_name)
     master_path = os.path.join('data', 'processed', 'features', 'MASTER_dataset.csv')
     
@@ -38,13 +38,15 @@ def simulate_tournament(model_name="xgboost_wm_modelV4.joblib", num_simulations=
     features = [
         'Delta_Total_Market_Value', 'Delta_Median_Top11_Value', 'Delta_Chemistry',
         'Delta_Form_Rating', 'Delta_UCL_Minutes', 'Delta_Tournament_Minutes',
-        'Delta_Average_Age', 'Delta_TM_Value_Rank', 'Delta_FIFA_Rank', 'Delta_FIFA_Points',
+        'Delta_TM_Value_Rank', 'Delta_FIFA_Rank', 'Delta_FIFA_Points', 'Delta_Top5_Density',
         'Is_Neutral'
     ]
     
     all_teams = [team for group_teams in groups.values() for team in group_teams]
     
-    print(f"Pre-calculating pairwise probabilities for all {len(all_teams) * (len(all_teams) - 1) // 2} matchups using {model_name}...")
+    # 2026 hosts
+    hosts = ['usa', 'canada', 'mexico']
+    
     match_probs = {}
     team_fifa_points = {}
     
@@ -53,25 +55,48 @@ def simulate_tournament(model_name="xgboost_wm_modelV4.joblib", num_simulations=
         team_fifa_points[team] = team_data.iloc[0]['FIFA_Points']
         
     for team_a, team_b in itertools.combinations(all_teams, 2):
-        data_a = master_df[master_df['Country'].str.lower() == team_a.lower()].iloc[0]
-        data_b = master_df[master_df['Country'].str.lower() == team_b.lower()].iloc[0]
+        # 1. Determine Home/Away and Neutrality with Host Advantage logic
+        a_is_host = team_a.lower() in hosts
+        b_is_host = team_b.lower() in hosts
+        
+        if a_is_host and not b_is_host:
+            home_team, away_team = team_a, team_b
+            is_neutral = 0
+            reversed_order = False
+        elif b_is_host and not a_is_host:
+            home_team, away_team = team_b, team_a
+            is_neutral = 0
+            reversed_order = True
+        else:
+            home_team, away_team = team_a, team_b
+            is_neutral = 1
+            reversed_order = False
+            
+        data_home = master_df[master_df['Country'].str.lower() == home_team.lower()].iloc[0]
+        data_away = master_df[master_df['Country'].str.lower() == away_team.lower()].iloc[0]
         
         delta_dict = {
-            'Delta_Total_Market_Value': data_a['Total_Market_Value_mEUR'] - data_b['Total_Market_Value_mEUR'],
-            'Delta_Median_Top11_Value': data_a['Median_Top11_Market_Value_mEUR'] - data_b['Median_Top11_Market_Value_mEUR'],
-            'Delta_Chemistry': data_a['Chemistry_Score'] - data_b['Chemistry_Score'],
-            'Delta_Form_Rating': data_a['Current_Form_Rating'] - data_b['Current_Form_Rating'],
-            'Delta_UCL_Minutes': data_a['Total_UCL_Minutes'] - data_b['Total_UCL_Minutes'],
-            'Delta_Tournament_Minutes': data_a['Total_Tournament_Minutes'] - data_b['Total_Tournament_Minutes'],
-            'Delta_Average_Age': data_a['Average_Age'] - data_b['Average_Age'],
-            'Delta_TM_Value_Rank': data_a['TM_Value_Rank'] - data_b['TM_Value_Rank'],
-            'Delta_FIFA_Rank': data_a['FIFA_Rank'] - data_b['FIFA_Rank'],
-            'Delta_FIFA_Points': data_a['FIFA_Points'] - data_b['FIFA_Points'],
-            'Is_Neutral': 1
+            'Delta_Total_Market_Value': data_home['Total_Market_Value_mEUR'] - data_away['Total_Market_Value_mEUR'],
+            'Delta_Median_Top11_Value': data_home['Median_Top11_Market_Value_mEUR'] - data_away['Median_Top11_Market_Value_mEUR'],
+            'Delta_Chemistry': data_home['Chemistry_Score'] - data_away['Chemistry_Score'],
+            'Delta_Form_Rating': data_home['Current_Form_Rating'] - data_away['Current_Form_Rating'],
+            'Delta_UCL_Minutes': data_home['Total_UCL_Minutes'] - data_away['Total_UCL_Minutes'],
+            'Delta_Tournament_Minutes': data_home['Total_Tournament_Minutes'] - data_away['Total_Tournament_Minutes'],            'Delta_TM_Value_Rank': data_home['TM_Value_Rank'] - data_away['TM_Value_Rank'],
+            'Delta_FIFA_Rank': data_home['FIFA_Rank'] - data_away['FIFA_Rank'],
+            'Delta_FIFA_Points': data_home['FIFA_Points'] - data_away['FIFA_Points'],
+            'Delta_Top5_Density': data_home['Top5_League_Density'] - data_away['Top5_League_Density'],
+            'Is_Neutral': is_neutral
         }
         X_pred = pd.DataFrame([delta_dict])[features]
         probs = model.predict_proba(X_pred)[0]
-        match_probs[(team_a, team_b)] = probs
+        
+        # Symmetrize probability formatting to match the original team order
+        if reversed_order:
+            # probs is [P(away win = team_a), P(draw), P(home win = team_b)]
+            # We want index 2 to represent team_a (away) win, and index 0 to represent team_b (home) win.
+            match_probs[(team_a, team_b)] = [probs[2], probs[1], probs[0]]
+        else:
+            match_probs[(team_a, team_b)] = probs
 
     def play_ko_match(team_a, team_b):
         if (team_a, team_b) in match_probs:

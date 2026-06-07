@@ -5,7 +5,7 @@ import numpy as np
 import joblib
 
 def simulate_group_stage(model_name="xgboost_wm_modelV4.joblib"):
-    """Runs a single simulation of the official 12 groups of the World Cup using the specified model."""
+    """Runs a single simulation of the official 12 groups of the World Cup using smart co-host home advantage."""
     model_path = os.path.join('models', model_name)
     master_path = os.path.join('data', 'processed', 'features', 'MASTER_dataset.csv')
     
@@ -41,8 +41,12 @@ def simulate_group_stage(model_name="xgboost_wm_modelV4.joblib"):
         'Is_Neutral'
     ]
     
+    # 2026 co-hosts
+    hosts = ['usa', 'canada', 'mexico']
+    
     print(f"🏆 STARTING GROUP SIMULATION USING MODEL: {model_name} 🏆")
-    print("="*60)
+    print("🌍 Smart Host Advantage: USA, Canada, and Mexico play as home teams (Is_Neutral=0)")
+    print("="*75)
     
     for group_name, teams in groups.items():
         group_standings = {team: 0 for team in teams}
@@ -51,44 +55,75 @@ def simulate_group_stage(model_name="xgboost_wm_modelV4.joblib"):
         matchups = list(itertools.combinations(teams, 2))
         
         for team_a, team_b in matchups:
-            data_a = master_df[master_df['Country'].str.lower() == team_a.lower()]
-            data_b = master_df[master_df['Country'].str.lower() == team_b.lower()]
+            # 1. Determine Home/Away with Host Advantage logic
+            a_is_host = team_a.lower() in hosts
+            b_is_host = team_b.lower() in hosts
             
-            if data_a.empty or data_b.empty:
-                print(f"⚠️ Warning: {team_a} or {team_b} not found in the dataset.")
+            if a_is_host and not b_is_host:
+                home_team, away_team = team_a, team_b
+                is_neutral = 0
+                reversed_order = False
+            elif b_is_host and not a_is_host:
+                home_team, away_team = team_b, team_a
+                is_neutral = 0
+                reversed_order = True
+            else:
+                home_team, away_team = team_a, team_b
+                is_neutral = 1
+                reversed_order = False
+                
+            data_home = master_df[master_df['Country'].str.lower() == home_team.lower()]
+            data_away = master_df[master_df['Country'].str.lower() == away_team.lower()]
+            
+            if data_home.empty or data_away.empty:
+                print(f"⚠️ Warning: {home_team} or {away_team} not found in the dataset.")
                 continue
                 
-            data_a = data_a.iloc[0]
-            data_b = data_b.iloc[0]
+            data_home = data_home.iloc[0]
+            data_away = data_away.iloc[0]
             
             delta_dict = {
-                'Delta_Total_Market_Value': data_a['Total_Market_Value_mEUR'] - data_b['Total_Market_Value_mEUR'],
-                'Delta_Median_Top11_Value': data_a['Median_Top11_Market_Value_mEUR'] - data_b['Median_Top11_Market_Value_mEUR'],
-                'Delta_Chemistry': data_a['Chemistry_Score'] - data_b['Chemistry_Score'],
-                'Delta_Form_Rating': data_a['Current_Form_Rating'] - data_b['Current_Form_Rating'],
-                'Delta_UCL_Minutes': data_a['Total_UCL_Minutes'] - data_b['Total_UCL_Minutes'],
-                'Delta_Tournament_Minutes': data_a['Total_Tournament_Minutes'] - data_b['Total_Tournament_Minutes'],
-                'Delta_Average_Age': data_a['Average_Age'] - data_b['Average_Age'],
-                'Delta_TM_Value_Rank': data_a['TM_Value_Rank'] - data_b['TM_Value_Rank'],
-                'Delta_FIFA_Rank': data_a['FIFA_Rank'] - data_b['FIFA_Rank'],
-                'Delta_FIFA_Points': data_a['FIFA_Points'] - data_b['FIFA_Points'],
-                'Is_Neutral': 1
+                'Delta_Total_Market_Value': data_home['Total_Market_Value_mEUR'] - data_away['Total_Market_Value_mEUR'],
+                'Delta_Median_Top11_Value': data_home['Median_Top11_Market_Value_mEUR'] - data_away['Median_Top11_Market_Value_mEUR'],
+                'Delta_Chemistry': data_home['Chemistry_Score'] - data_away['Chemistry_Score'],
+                'Delta_Form_Rating': data_home['Current_Form_Rating'] - data_away['Current_Form_Rating'],
+                'Delta_UCL_Minutes': data_home['Total_UCL_Minutes'] - data_away['Total_UCL_Minutes'],
+                'Delta_Tournament_Minutes': data_home['Total_Tournament_Minutes'] - data_away['Total_Tournament_Minutes'],
+                'Delta_TM_Value_Rank': data_home['TM_Value_Rank'] - data_away['TM_Value_Rank'],
+                'Delta_FIFA_Rank': data_home['FIFA_Rank'] - data_away['FIFA_Rank'],
+                'Delta_FIFA_Points': data_home['FIFA_Points'] - data_away['FIFA_Points'],
+                'Delta_Top5_Density': data_home['Top5_League_Density'] - data_away['Top5_League_Density'],
+                'Is_Neutral': is_neutral
             }
             
             X_pred = pd.DataFrame([delta_dict])[features]
             probs = model.predict_proba(X_pred)[0]
             outcome = np.random.choice([0, 1, 2], p=probs)
             
-            if outcome == 2:
-                print(f"  {team_a} beats {team_b} (Win Prob: {probs[2]*100:.1f}%)")
-                group_standings[team_a] += 3
-            elif outcome == 0:
-                print(f"  {team_b} beats {team_a} (Win Prob: {probs[0]*100:.1f}%)")
-                group_standings[team_b] += 3
+            # Map predictions back to the original order (team_a vs team_b)
+            if not reversed_order:
+                if outcome == 2:
+                    print(f"  {team_a} beats {team_b} (Win Prob: {probs[2]*100:.1f}%) [Home Advantage]")
+                    group_standings[team_a] += 3
+                elif outcome == 0:
+                    print(f"  {team_b} beats {team_a} (Win Prob: {probs[0]*100:.1f}%)")
+                    group_standings[team_b] += 3
+                else:
+                    print(f"  {team_a} and {team_b} draw (Draw Prob: {probs[1]*100:.1f}%)")
+                    group_standings[team_a] += 1
+                    group_standings[team_b] += 1
             else:
-                print(f"  {team_a} and {team_b} draw (Draw Prob: {probs[1]*100:.1f}%)")
-                group_standings[team_a] += 1
-                group_standings[team_b] += 1
+                # Reversed order -> probs[2] is team_b (home) win, probs[0] is team_a (away) win
+                if outcome == 2:
+                    print(f"  {team_b} beats {team_a} (Win Prob: {probs[2]*100:.1f}%) [Home Advantage]")
+                    group_standings[team_b] += 3
+                elif outcome == 0:
+                    print(f"  {team_a} beats {team_b} (Win Prob: {probs[0]*100:.1f}%)")
+                    group_standings[team_a] += 3
+                else:
+                    print(f"  {team_a} and {team_b} draw (Draw Prob: {probs[1]*100:.1f}%)")
+                    group_standings[team_a] += 1
+                    group_standings[team_b] += 1
                 
         sorted_standings = sorted(
             group_standings.items(), 

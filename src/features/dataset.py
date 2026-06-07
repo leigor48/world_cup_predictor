@@ -17,13 +17,11 @@ def build_master_dataset():
         df = pd.read_csv(file)
         top_11_value = df.nlargest(11, 'Market_Value_mEUR')['Market_Value_mEUR'].median()
         total_value = df['Market_Value_mEUR'].sum()
-        average_age = df['Age'].mean() if 'Age' in df.columns else 26.0
         
         squad_features.append({
             'Country': country,
             'Total_Market_Value_mEUR': total_value,
-            'Median_Top11_Market_Value_mEUR': top_11_value,
-            'Average_Age': average_age
+            'Median_Top11_Market_Value_mEUR': top_11_value
         })
         
     master_df = pd.DataFrame(squad_features)
@@ -47,6 +45,7 @@ def build_master_dataset():
     master_df['FIFA_Rank'] = master_df['FIFA_Rank'].fillna(100)
     master_df['FIFA_Points'] = master_df['FIFA_Points'].fillna(1000)
     master_df['TM_Value_Rank'] = master_df['Total_Market_Value_mEUR'].rank(ascending=False)
+    master_df['Top5_League_Density'] = master_df['Top5_League_Density'].fillna(0.0)
             
     master_path = os.path.join(features_dir, 'MASTER_dataset.csv')
     master_df.to_csv(master_path, index=False)
@@ -80,10 +79,10 @@ def create_matchups():
             'Delta_Form_Rating': data_a['Current_Form_Rating'] - data_b['Current_Form_Rating'],
             'Delta_UCL_Minutes': data_a['Total_UCL_Minutes'] - data_b['Total_UCL_Minutes'],
             'Delta_Tournament_Minutes': data_a['Total_Tournament_Minutes'] - data_b['Total_Tournament_Minutes'],
-            'Delta_Average_Age': data_a['Average_Age'] - data_b['Average_Age'],
             'Delta_TM_Value_Rank': data_a['TM_Value_Rank'] - data_b['TM_Value_Rank'],
             'Delta_FIFA_Rank': data_a['FIFA_Rank'] - data_b['FIFA_Rank'],
-            'Delta_FIFA_Points': data_a['FIFA_Points'] - data_b['FIFA_Points']
+            'Delta_FIFA_Points': data_a['FIFA_Points'] - data_b['FIFA_Points'],
+            'Delta_Top5_Density': data_a['Top5_League_Density'] - data_b['Top5_League_Density']
         }
         matchups.append(matchup_data)
         
@@ -121,17 +120,17 @@ def build_training_data():
     train_df['Delta_Form_Rating'] = train_df['Current_Form_Rating_A'] - train_df['Current_Form_Rating_B']
     train_df['Delta_UCL_Minutes'] = train_df['Total_UCL_Minutes_A'] - train_df['Total_UCL_Minutes_B']
     train_df['Delta_Tournament_Minutes'] = train_df['Total_Tournament_Minutes_A'] - train_df['Total_Tournament_Minutes_B']
-    train_df['Delta_Average_Age'] = train_df['Average_Age_A'] - train_df['Average_Age_B']
     train_df['Delta_TM_Value_Rank'] = train_df['TM_Value_Rank_A'] - train_df['TM_Value_Rank_B']
     train_df['Delta_FIFA_Rank'] = train_df['FIFA_Rank_A'] - train_df['FIFA_Rank_B']
     train_df['Delta_FIFA_Points'] = train_df['FIFA_Points_A'] - train_df['FIFA_Points_B']
+    train_df['Delta_Top5_Density'] = train_df['Top5_League_Density_A'] - train_df['Top5_League_Density_B']
     
     train_df['Is_Neutral'] = train_df['neutral'].astype(int)
     
     features = [
         'Delta_Total_Market_Value', 'Delta_Median_Top11_Value', 'Delta_Chemistry',
         'Delta_Form_Rating', 'Delta_UCL_Minutes', 'Delta_Tournament_Minutes',
-        'Delta_Average_Age', 'Delta_TM_Value_Rank', 'Delta_FIFA_Rank', 'Delta_FIFA_Points',
+        'Delta_TM_Value_Rank', 'Delta_FIFA_Rank', 'Delta_FIFA_Points', 'Delta_Top5_Density',
         'Is_Neutral'
     ]
     

@@ -11,7 +11,7 @@ from rich.table import Table
 console = Console()
 
 def train_model(model_name="xgboost_wm_modelV4.joblib", use_tuning=False):
-    """Trains an XGBoost multiclass classifier to predict match outcomes with time-decay sample weighting."""
+    """Trains an XGBoost multiclass classifier to predict match outcomes with time-decay sample weighting and smart class-weights."""
     data_path = os.path.join('data', 'processed', 'model_input', 'training_data.csv')
     if not os.path.exists(data_path):
         console.print(f"[bold red]Error: Training dataset not found at {data_path}. Run dataset generation first.[/bold red]")
@@ -29,10 +29,11 @@ def train_model(model_name="xgboost_wm_modelV4.joblib", use_tuning=False):
     df['days_ago'] = (latest_date - df['date']).dt.days
     df['match_weight'] = np.exp(-df['days_ago'] / 1000)
     
+    # FINETUNING: Removed non-significant Delta_Average_Age, added Delta_Top5_Density
     features = [
         'Delta_Total_Market_Value', 'Delta_Median_Top11_Value', 'Delta_Chemistry',
         'Delta_Form_Rating', 'Delta_UCL_Minutes', 'Delta_Tournament_Minutes',
-        'Delta_Average_Age', 'Delta_TM_Value_Rank', 'Delta_FIFA_Rank', 'Delta_FIFA_Points',
+        'Delta_TM_Value_Rank', 'Delta_FIFA_Rank', 'Delta_FIFA_Points', 'Delta_Top5_Density',
         'Is_Neutral' 
     ]
     
@@ -45,15 +46,25 @@ def train_model(model_name="xgboost_wm_modelV4.joblib", use_tuning=False):
         X, y, weights, test_size=0.2, random_state=42, stratify=y
     )
     
+    # FINETUNING: Draw Balance (Increase sample weights of draws (class 1) to solve the draw recall problem)
+    # Since draws make up roughly 24% of outcomes, scaling up their weights forces the trees to learn draw boundaries.
+    draw_multiplier = 1.35
+    w_train_adjusted = w_train.copy()
+    w_train_adjusted[y_train == 1] = w_train_adjusted[y_train == 1] * draw_multiplier
+    
     console.print(f"Split sizes -> Train: {len(X_train)} | Test: {len(X_test)}")
     
     if use_tuning:
-        console.print("[bold yellow]Running Hyperparameter Optimization via GridSearchCV...[/bold yellow]")
+        console.print("[bold yellow]Running Fine-Tuned Hyperparameter Optimization via GridSearchCV...[/bold yellow]")
+        # FINETUNING: Expanded search grid with colsample_bytree and regularization
         param_grid = {
-            'max_depth': [3, 5, 7],
-            'learning_rate': [0.01, 0.05, 0.1],
-            'n_estimators': [50, 100, 200],
-            'subsample': [0.8, 1.0]
+            'max_depth': [3, 4, 5],
+            'learning_rate': [0.01, 0.03, 0.05],
+            'n_estimators': [50, 100, 150],
+            'subsample': [0.7, 0.8, 1.0],
+            'colsample_bytree': [0.7, 0.8, 1.0],
+            'reg_alpha': [0.0, 0.1, 0.5],
+            'reg_lambda': [1.0, 1.5, 2.0]
         }
         
         xgb_base = xgb.XGBClassifier(
@@ -73,30 +84,33 @@ def train_model(model_name="xgboost_wm_modelV4.joblib", use_tuning=False):
         )
         
         # Fit GridSearchCV with training weights passed to fit
-        grid_search.fit(X_train, y_train, sample_weight=w_train)
+        grid_search.fit(X_train, y_train, sample_weight=w_train_adjusted)
         console.print("[bold green]Tuning completed successfully.[/bold green]")
         console.print(f"Best Parameters: {grid_search.best_params_}")
         best_model = grid_search.best_estimator_
     else:
-        # Default best hyperparameters from prior training
-        console.print("[bold cyan]Training model with standard optimized hyperparameters...[/bold cyan]")
+        # FINETUNING: Fine-tuned optimal default hyperparameters with colsample restriction
+        console.print("[bold cyan]Training model with optimized fine-tuned hyperparameters...[/bold cyan]")
         best_model = xgb.XGBClassifier(
             objective='multi:softprob',
             num_class=3,
-            learning_rate=0.05,
+            learning_rate=0.03,
             max_depth=3,
-            n_estimators=50,
-            subsample=1.0,
+            n_estimators=100,
+            subsample=0.8,
+            colsample_bytree=0.8,
+            reg_alpha=0.1,
+            reg_lambda=1.5,
             random_state=42,
             eval_metric='mlogloss'
         )
-        best_model.fit(X_train, y_train, sample_weight=w_train)
+        best_model.fit(X_train, y_train, sample_weight=w_train_adjusted)
         
     y_pred = best_model.predict(X_test)
     accuracy = accuracy_score(y_test, y_pred)
     console.print(f"\n[bold green]Model Accuracy on Test Set: {accuracy * 100:.2f}%[/bold green]")
     console.print("\nDetailed Classification Report:")
-    print(classification_report(y_test, y_pred))
+    print(classification_report(y_test, y_pred, target_names=["Away Win (0)", "Draw (1)", "Home Win (2)"]))
     
     # Export Model
     models_dir = os.path.join('models')
@@ -127,7 +141,7 @@ def evaluate_saved_model(model_name="xgboost_wm_modelV4.joblib"):
     features = [
         'Delta_Total_Market_Value', 'Delta_Median_Top11_Value', 'Delta_Chemistry',
         'Delta_Form_Rating', 'Delta_UCL_Minutes', 'Delta_Tournament_Minutes',
-        'Delta_Average_Age', 'Delta_TM_Value_Rank', 'Delta_FIFA_Rank', 'Delta_FIFA_Points',
+        'Delta_TM_Value_Rank', 'Delta_FIFA_Rank', 'Delta_FIFA_Points', 'Delta_Top5_Density',
         'Is_Neutral' 
     ]
     
@@ -153,7 +167,7 @@ def evaluate_saved_model(model_name="xgboost_wm_modelV4.joblib"):
     
     try:
         params = model.get_params()
-        for k in ['n_estimators', 'max_depth', 'learning_rate', 'subsample', 'eval_metric', 'objective']:
+        for k in ['n_estimators', 'max_depth', 'learning_rate', 'subsample', 'colsample_bytree', 'reg_alpha', 'reg_lambda', 'eval_metric', 'objective']:
             if k in params:
                 params_table.add_row(k, str(params[k]))
     except Exception:
@@ -207,7 +221,7 @@ def compare_models():
     features = [
         'Delta_Total_Market_Value', 'Delta_Median_Top11_Value', 'Delta_Chemistry',
         'Delta_Form_Rating', 'Delta_UCL_Minutes', 'Delta_Tournament_Minutes',
-        'Delta_Average_Age', 'Delta_TM_Value_Rank', 'Delta_FIFA_Rank', 'Delta_FIFA_Points',
+        'Delta_TM_Value_Rank', 'Delta_FIFA_Rank', 'Delta_FIFA_Points', 'Delta_Top5_Density',
         'Is_Neutral' 
     ]
     X = df[features]

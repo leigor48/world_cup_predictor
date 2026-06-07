@@ -77,7 +77,7 @@ def calculate_club_chemistry():
 
 
 def calculate_weighted_ratings():
-    """Builds the player form rating weighted by league quality."""
+    """Builds the player form rating weighted by league quality, and extracts European Top 5 League concentration."""
     leagues_dir = os.path.join('data', 'raw', 'leagues') 
     squads_dir = os.path.join('data', 'processed', 'squads')
     
@@ -100,6 +100,8 @@ def calculate_weighted_ratings():
         'usa_mls': 0.55,
         'saudi_arabia_pro_league': 0.50
     }
+    
+    top5_leagues = ['england_premier_league', 'spain_la_liga', 'italy_serie_a', 'germany_bundesliga', 'france_ligue_1']
     
     universe_list = []
     
@@ -143,6 +145,7 @@ def calculate_weighted_ratings():
         squad_df = pd.read_csv(file)
         squad_df['match_name'] = squad_df['Name'].astype(str).str.lower().str.strip()
         
+        # 1. Standard Form Rating Calculation
         merged = pd.merge(squad_df, universe_df, on='match_name', how='left')
         baseline_score = 6.5 * 0.3
         merged['Final_Weighted_Rating'] = merged['Weighted_Rating'].fillna(baseline_score)
@@ -150,15 +153,24 @@ def calculate_weighted_ratings():
         top_15_ratings = merged.nlargest(15, 'Final_Weighted_Rating')['Final_Weighted_Rating']
         squad_rating = top_15_ratings.mean()
         
+        # 2. FINETUNING: Calculate Top-5 European League density
+        # Clean Club name to avoid formatting mismatches and map to league keys
+        # We can map known top-5 clubs or check in which leagues their name is matched.
+        matched_leagues = merged.dropna(subset=['League_Key'])
+        top5_count = matched_leagues[matched_leagues['League_Key'].isin(top5_leagues)]['match_name'].nunique()
+        total_players = squad_df['match_name'].nunique()
+        top5_density = (top5_count / total_players) if total_players > 0 else 0.0
+        
         results.append({
             'Country': country,
-            'Current_Form_Rating': squad_rating
+            'Current_Form_Rating': squad_rating,
+            'Top5_League_Density': top5_density
         })
 
     features_dir = os.path.join('data', 'processed', 'features')
     os.makedirs(features_dir, exist_ok=True)
     pd.DataFrame(results).to_csv(os.path.join(features_dir, 'current_form_ratings.csv'), index=False)
-    print("-> Weighted form ratings complete.")
+    print("-> Weighted form ratings and Top-5 League Density features calculated.")
 
 
 def calculate_ucl_experience():
