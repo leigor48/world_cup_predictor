@@ -147,7 +147,20 @@ def evaluate_saved_model(model_name="xgboost_wm_modelV4.joblib"):
         return
         
     # Load Model
-    model = joblib.load(model_path)
+    loaded = joblib.load(model_path)
+
+    if isinstance(loaded, dict):
+        metadata = loaded
+        model = loaded["model"]
+    else:
+        metadata = None
+        model = loaded
+
+    if metadata:
+        console.print("\n[bold cyan]Stored Metadata:[/bold cyan]")
+        console.print(f"Created: {metadata.get('created')}")
+        console.print(f"Accuracy at Training: {metadata.get('accuracy'):.4f}")
+        console.print(f"Training Rows: {metadata.get('training_rows')}")
     
     # Load Data and replicate Train/Test Split
     df = pd.read_csv(data_path)
