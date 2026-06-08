@@ -49,9 +49,6 @@ def simulate_tournament(model_name="xgboost_wm_modelV4.joblib", num_simulations=
     # 2026 hosts
     hosts = ['usa', 'canada', 'mexico']
     
-    print(f"Pre-calculating pairwise probabilities for all {len(all_teams) * (len(all_teams) - 1) // 2} matchups using {model_name}...")
-    print("🌍 Smart Host Advantage: USA, Canada, and Mexico play with home advantage (Is_Neutral=0)")
-    
     match_probs = {}
     team_elo = {} # Geändert: Wir nutzen ELO als Tie-Breaker anstatt FIFA-Points
     
@@ -172,7 +169,7 @@ def simulate_tournament(model_name="xgboost_wm_modelV4.joblib", num_simulations=
         champion = play_round(final_teams)[0]
         ko_stats[champion]['Win'] += 1
         
-    print(f"\n🏆 TOURNAMENT PROGNOSE SUMMARY (using {model_name}) 🏆")
+    print(f"\n🏆 WORLD CUP PREDICTION SUMMARY 🏆")
     print("=" * 60)
     print(f"{'Country':<20} | {'R16 %':<8} | {'QF %':<8} | {'SF %':<8} | {'Final %':<8} | {'Winner %':<8}")
     print("-" * 60)
