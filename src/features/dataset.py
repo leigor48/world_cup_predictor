@@ -31,8 +31,7 @@ def build_master_dataset():
         'current_form_ratings.csv',
         'ucl_experience.csv',
         'tournament_experience.csv',
-        'fifa_ranking.csv',
-        'current_elo_ratings.csv'  # Dynamic ELO feature added!
+        'fifa_ranking.csv'
     ]
     
     for file_name in feature_files:
@@ -47,7 +46,6 @@ def build_master_dataset():
     master_df['FIFA_Points'] = master_df['FIFA_Points'].fillna(1000)
     master_df['TM_Value_Rank'] = master_df['Total_Market_Value_mEUR'].rank(ascending=False)
     master_df['Top5_League_Density'] = master_df['Top5_League_Density'].fillna(0.0)
-    master_df['ELO_Rating'] = master_df['ELO_Rating'].fillna(1500.0)  # Default average ELO
             
     master_path = os.path.join(features_dir, 'MASTER_dataset.csv')
     master_df.to_csv(master_path, index=False)
@@ -84,8 +82,7 @@ def create_matchups():
             'Delta_TM_Value_Rank': data_a['TM_Value_Rank'] - data_b['TM_Value_Rank'],
             'Delta_FIFA_Rank': data_a['FIFA_Rank'] - data_b['FIFA_Rank'],
             'Delta_FIFA_Points': data_a['FIFA_Points'] - data_b['FIFA_Points'],
-            'Delta_Top5_Density': data_a['Top5_League_Density'] - data_b['Top5_League_Density'],
-            'Delta_Elo': data_a['ELO_Rating'] - data_b['ELO_Rating']  # Matchup ELO delta added!
+            'Delta_Top5_Density': data_a['Top5_League_Density'] - data_b['Top5_League_Density']
         }
         matchups.append(matchup_data)
         
@@ -98,13 +95,12 @@ def create_matchups():
 
 
 def build_training_data():
-    """Generates the final multi-feature training dataset by combining historical ELO matches with team deltas."""
+    """Generates the final multi-feature training dataset by combining historical matches with team deltas."""
     master_path = os.path.join('data', 'processed', 'features', 'MASTER_dataset.csv')
-    # FINETUNING/ELO: Read from leakage-free historical_elo_matches.csv instead of raw results.csv
-    results_path = os.path.join('data', 'processed', 'features', 'historical_elo_matches.csv')
+    results_path = os.path.join('data', 'raw', 'historical', 'results.csv')
     
     if not os.path.exists(master_path) or not os.path.exists(results_path):
-        print("Error: Missing master dataset or historical ELO matches files.")
+        print("Error: Missing master dataset or historical results files.")
         return
         
     master_df = pd.read_csv(master_path)
@@ -112,7 +108,6 @@ def build_training_data():
     
     print("Building final training dataset matrix...")
     
-    # Merge on Team A and Team B to calculate historical deltas
     train_df = pd.merge(results_df, master_df, left_on='Team_A', right_on='Country', how='inner')
     train_df = train_df.rename(columns=lambda x: f"{x}_A" if x in master_df.columns else x)
     
@@ -136,18 +131,13 @@ def build_training_data():
         'Delta_Total_Market_Value', 'Delta_Median_Top11_Value', 'Delta_Chemistry',
         'Delta_Form_Rating', 'Delta_UCL_Minutes', 'Delta_Tournament_Minutes',
         'Delta_TM_Value_Rank', 'Delta_FIFA_Rank', 'Delta_FIFA_Points', 'Delta_Top5_Density',
-        'Delta_Elo',  # Pre-match ELO delta from historical_elo_matches is leakage-free!
         'Is_Neutral'
     ]
     
     final_cols = ['date', 'Team_A', 'Team_B', 'home_score', 'away_score', 'target'] + features
     final_train_df = train_df[final_cols].copy()
     
-    # Filter training data to 2018+ to keep the training window focused on modern eras while using ELO stabilized since 2010
-    final_train_df['date'] = pd.to_datetime(final_train_df['date'])
-    final_train_df = final_train_df[final_train_df['date'].dt.year >= 2018].copy()
-    
     out_dir = os.path.join('data', 'processed', 'model_input')
     os.makedirs(out_dir, exist_ok=True)
     final_train_df.to_csv(os.path.join(out_dir, 'training_data.csv'), index=False)
-    print(f"-> Training dataset matrix creation complete. ({len(final_train_df)} training samples since 2018).")
+    print("-> Training dataset matrix creation complete.")

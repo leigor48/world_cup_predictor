@@ -85,8 +85,8 @@ def main():
                 
         if args.command == "features" or args.command == "all":
             from src.features.engineering import (
-                clean_market_values, calculate_club_chemistry, calculate_weighted_ratings,
-                calculate_ucl_experience, calculate_tournament_experience, scrape_fifa_ranking
+                clean_market_values, calculate_squad_market_value, calculate_club_chemistry, 
+                calculate_weighted_ratings, calculate_ucl_experience, calculate_tournament_experience
             )
             from src.features.dataset import (
                 build_master_dataset, create_matchups, build_training_data
@@ -97,8 +97,8 @@ def main():
             
             if args.command == "all" or args.step in ["engineering", "all"]:
                 # 1. Fetch raw rankings/stats
-                scrape_fifa_ranking()
                 clean_market_values()
+                calculate_squad_market_value()
                 calculate_club_chemistry()
                 calculate_weighted_ratings()
                 calculate_ucl_experience()

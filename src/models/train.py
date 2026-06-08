@@ -1,4 +1,5 @@
 import os
+from datetime import datetime
 import numpy as np
 import pandas as pd
 import xgboost as xgb
@@ -29,12 +30,11 @@ def train_model(model_name="xgboost_wm_modelV4.joblib", use_tuning=False):
     df['days_ago'] = (latest_date - df['date']).dt.days
     df['match_weight'] = np.exp(-df['days_ago'] / 1000)
     
-    # ELO & FINETUNING: Feature set incorporates ELO alongside traditional markers
+    # FINETUNING: Removed non-significant Delta_Average_Age, added Delta_Top5_Density
     features = [
         'Delta_Total_Market_Value', 'Delta_Median_Top11_Value', 'Delta_Chemistry',
         'Delta_Form_Rating', 'Delta_UCL_Minutes', 'Delta_Tournament_Minutes',
-        'Delta_TM_Value_Rank', 'Delta_FIFA_Rank', 'Delta_FIFA_Points', 'Delta_Top5_Density',
-        'Delta_Elo',  # Added dynamic ELO!
+        'Delta_TM_Value_Rank', 'Delta_Top5_Density', 'Delta_Elo',
         'Is_Neutral' 
     ]
     
@@ -48,6 +48,7 @@ def train_model(model_name="xgboost_wm_modelV4.joblib", use_tuning=False):
     )
     
     # FINETUNING: Draw Balance (Increase sample weights of draws (class 1) to solve the draw recall problem)
+    # Since draws make up roughly 24% of outcomes, scaling up their weights forces the trees to learn draw boundaries.
     draw_multiplier = 1.35
     w_train_adjusted = w_train.copy()
     w_train_adjusted[y_train == 1] = w_train_adjusted[y_train == 1] * draw_multiplier
@@ -56,6 +57,7 @@ def train_model(model_name="xgboost_wm_modelV4.joblib", use_tuning=False):
     
     if use_tuning:
         console.print("[bold yellow]Running Fine-Tuned Hyperparameter Optimization via GridSearchCV...[/bold yellow]")
+        # FINETUNING: Expanded search grid with colsample_bytree and regularization
         param_grid = {
             'max_depth': [3, 4, 5],
             'learning_rate': [0.01, 0.03, 0.05],
@@ -82,12 +84,14 @@ def train_model(model_name="xgboost_wm_modelV4.joblib", use_tuning=False):
             verbose=1
         )
         
+        # Fit GridSearchCV with training weights passed to fit
         grid_search.fit(X_train, y_train, sample_weight=w_train_adjusted)
         console.print("[bold green]Tuning completed successfully.[/bold green]")
         console.print(f"Best Parameters: {grid_search.best_params_}")
         best_model = grid_search.best_estimator_
     else:
-        console.print("[bold cyan]Training model with optimized fine-tuned ELO hyperparameters...[/bold cyan]")
+        # FINETUNING: Fine-tuned optimal default hyperparameters with colsample restriction
+        console.print("[bold cyan]Training model with optimized fine-tuned hyperparameters...[/bold cyan]")
         best_model = xgb.XGBClassifier(
             objective='multi:softprob',
             num_class=3,
@@ -109,12 +113,24 @@ def train_model(model_name="xgboost_wm_modelV4.joblib", use_tuning=False):
     console.print("\nDetailed Classification Report:")
     print(classification_report(y_test, y_pred, target_names=["Away Win (0)", "Draw (1)", "Home Win (2)"]))
     
-    # Export Model
+    # Export Model + Metadata
     models_dir = os.path.join('models')
     os.makedirs(models_dir, exist_ok=True)
     out_path = os.path.join(models_dir, model_name)
-    
-    joblib.dump(best_model, out_path)
+
+    model_package = {
+        "model": best_model,
+        "created": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "accuracy": float(accuracy),
+        "features": features,
+        "training_rows": len(df),
+        "draw_multiplier": draw_multiplier,
+        "time_decay_days": 1000,
+        "hyperparameters": best_model.get_params(),
+        "model_version": model_name
+    }
+
+    joblib.dump(model_package, out_path)
     console.print(f"[bold green]✓ Model saved successfully to '{out_path}'![/bold green]")
 
 
@@ -131,15 +147,27 @@ def evaluate_saved_model(model_name="xgboost_wm_modelV4.joblib"):
         return
         
     # Load Model
-    model = joblib.load(model_path)
+    loaded = joblib.load(model_path)
+
+    if isinstance(loaded, dict):
+        metadata = loaded
+        model = loaded["model"]
+    else:
+        metadata = None
+        model = loaded
+
+    if metadata:
+        console.print("\n[bold cyan]Stored Metadata:[/bold cyan]")
+        console.print(f"Created: {metadata.get('created')}")
+        console.print(f"Accuracy at Training: {metadata.get('accuracy'):.4f}")
+        console.print(f"Training Rows: {metadata.get('training_rows')}")
     
     # Load Data and replicate Train/Test Split
     df = pd.read_csv(data_path)
     features = [
         'Delta_Total_Market_Value', 'Delta_Median_Top11_Value', 'Delta_Chemistry',
         'Delta_Form_Rating', 'Delta_UCL_Minutes', 'Delta_Tournament_Minutes',
-        'Delta_TM_Value_Rank', 'Delta_FIFA_Rank', 'Delta_FIFA_Points', 'Delta_Top5_Density',
-        'Delta_Elo',  # Added dynamic ELO!
+        'Delta_TM_Value_Rank', 'Delta_Top5_Density', 'Delta_Elo',
         'Is_Neutral' 
     ]
     
@@ -219,8 +247,7 @@ def compare_models():
     features = [
         'Delta_Total_Market_Value', 'Delta_Median_Top11_Value', 'Delta_Chemistry',
         'Delta_Form_Rating', 'Delta_UCL_Minutes', 'Delta_Tournament_Minutes',
-        'Delta_TM_Value_Rank', 'Delta_FIFA_Rank', 'Delta_FIFA_Points', 'Delta_Top5_Density',
-        'Delta_Elo',  # Added dynamic ELO!
+        'Delta_TM_Value_Rank', 'Delta_Top5_Density', 'Delta_Elo', 
         'Is_Neutral' 
     ]
     X = df[features]
@@ -263,12 +290,15 @@ def compare_models():
                 'status': "✓ Active & Functional"
             })
         except Exception as e:
-            results.append({
-                'filename': filename,
-                'accuracy': -1.0,
-                'params': "N/A",
-                'status': f"❌ Error: {str(e)[:30]}..."
-            })
+                    error_msg = str(e)
+                    console.print(f"[bold red]DEBUG ERROR for {filename}:[/bold red] {error_msg}")
+                    
+                    results.append({
+                        'filename': filename,
+                        'accuracy': -1.0,
+                        'params': "N/A",
+                        'status': f"❌ {error_msg[:60]}" if len(error_msg) > 60 else f"❌ {error_msg}"
+                    })
             
     # Sort results by accuracy descending, placing failed models at the bottom
     results = sorted(results, key=lambda x: x['accuracy'], reverse=True)

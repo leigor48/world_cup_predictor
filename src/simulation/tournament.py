@@ -35,11 +35,11 @@ def simulate_tournament(model_name="xgboost_wm_modelV4.joblib", num_simulations=
         'L': ['England', 'Croatia', 'Ghana', 'Panama']
     }
     
-    # ELO & FINETUNING: Feature set matches train.py exactly
+    # Reduziertes Feature-Set, passend zum trainierten Modell
     features = [
         'Delta_Total_Market_Value', 'Delta_Median_Top11_Value', 'Delta_Chemistry',
         'Delta_Form_Rating', 'Delta_UCL_Minutes', 'Delta_Tournament_Minutes',
-        'Delta_TM_Value_Rank', 'Delta_FIFA_Rank', 'Delta_FIFA_Points', 'Delta_Top5_Density',
+        'Delta_TM_Value_Rank', 'Delta_Top5_Density',
         'Delta_Elo',
         'Is_Neutral'
     ]
@@ -49,15 +49,12 @@ def simulate_tournament(model_name="xgboost_wm_modelV4.joblib", num_simulations=
     # 2026 hosts
     hosts = ['usa', 'canada', 'mexico']
     
-    print(f"Pre-calculating pairwise probabilities for all {len(all_teams) * (len(all_teams) - 1) // 2} matchups using {model_name}...")
-    print("🌍 Smart Host Advantage: USA, Canada, and Mexico play with home advantage (Is_Neutral=0)")
-    
     match_probs = {}
-    team_fifa_points = {}
+    team_elo = {} # Geändert: Wir nutzen ELO als Tie-Breaker anstatt FIFA-Points
     
     for team in all_teams:
         team_data = master_df[master_df['Country'].str.lower() == team.lower()]
-        team_fifa_points[team] = team_data.iloc[0]['FIFA_Points']
+        team_elo[team] = team_data.iloc[0]['ELO_Rating']
         
     for team_a, team_b in itertools.combinations(all_teams, 2):
         # 1. Determine Home/Away and Neutrality with Host Advantage logic
@@ -80,6 +77,7 @@ def simulate_tournament(model_name="xgboost_wm_modelV4.joblib", num_simulations=
         data_home = master_df[master_df['Country'].str.lower() == home_team.lower()].iloc[0]
         data_away = master_df[master_df['Country'].str.lower() == away_team.lower()].iloc[0]
         
+        # FIFA-Ranks restlos entfernt
         delta_dict = {
             'Delta_Total_Market_Value': data_home['Total_Market_Value_mEUR'] - data_away['Total_Market_Value_mEUR'],
             'Delta_Median_Top11_Value': data_home['Median_Top11_Market_Value_mEUR'] - data_away['Median_Top11_Market_Value_mEUR'],
@@ -88,8 +86,6 @@ def simulate_tournament(model_name="xgboost_wm_modelV4.joblib", num_simulations=
             'Delta_UCL_Minutes': data_home['Total_UCL_Minutes'] - data_away['Total_UCL_Minutes'],
             'Delta_Tournament_Minutes': data_home['Total_Tournament_Minutes'] - data_away['Total_Tournament_Minutes'],
             'Delta_TM_Value_Rank': data_home['TM_Value_Rank'] - data_away['TM_Value_Rank'],
-            'Delta_FIFA_Rank': data_home['FIFA_Rank'] - data_away['FIFA_Rank'],
-            'Delta_FIFA_Points': data_home['FIFA_Points'] - data_away['FIFA_Points'],
             'Delta_Top5_Density': data_home['Top5_League_Density'] - data_away['Top5_League_Density'],
             'Delta_Elo': data_home['ELO_Rating'] - data_away['ELO_Rating'],
             'Is_Neutral': is_neutral
@@ -99,8 +95,6 @@ def simulate_tournament(model_name="xgboost_wm_modelV4.joblib", num_simulations=
         
         # Symmetrize probability formatting to match the original team order
         if reversed_order:
-            # probs is [P(away win = team_a), P(draw), P(home win = team_b)]
-            # We want index 2 to represent team_a (away) win, and index 0 to represent team_b (home) win.
             match_probs[(team_a, team_b)] = [probs[2], probs[1], probs[0]]
         else:
             match_probs[(team_a, team_b)] = probs
@@ -136,12 +130,13 @@ def simulate_tournament(model_name="xgboost_wm_modelV4.joblib", num_simulations=
                     standings[team_a] += 1
                     standings[team_b] += 1
                     
-            sorted_group = sorted(standings.items(), key=lambda x: (x[1], team_fifa_points[x[0]]), reverse=True)
+            # ELO als Tie-Breaker anstelle von FIFA_Points
+            sorted_group = sorted(standings.items(), key=lambda x: (x[1], team_elo[x[0]]), reverse=True)
             t1, t2, t3, _ = [t[0] for t in sorted_group]
             
             winners[group_name] = t1
             runners_up[group_name] = t2
-            thirds.append((t3, sorted_group[2][1], team_fifa_points[t3]))
+            thirds.append((t3, sorted_group[2][1], team_elo[t3]))
             
         best_thirds = [t[0] for t in sorted(thirds, key=lambda x: (x[1], x[2]), reverse=True)[:8]]
         
@@ -174,7 +169,7 @@ def simulate_tournament(model_name="xgboost_wm_modelV4.joblib", num_simulations=
         champion = play_round(final_teams)[0]
         ko_stats[champion]['Win'] += 1
         
-    print(f"\n🏆 TOURNAMENT PROGNOSE SUMMARY (using {model_name}) 🏆")
+    print(f"\n🏆 WORLD CUP PREDICTION SUMMARY 🏆")
     print("=" * 60)
     print(f"{'Country':<20} | {'R16 %':<8} | {'QF %':<8} | {'SF %':<8} | {'Final %':<8} | {'Winner %':<8}")
     print("-" * 60)
