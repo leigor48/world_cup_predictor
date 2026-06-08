@@ -26,13 +26,13 @@ def build_master_dataset():
         
     master_df = pd.DataFrame(squad_features)
     
+    # FIFA-Ranking entfernt!
     feature_files = [
         'club_chemistry.csv',
         'current_form_ratings.csv',
         'ucl_experience.csv',
         'tournament_experience.csv',
-        'fifa_ranking.csv',
-        'current_elo_ratings.csv'  # Dynamic ELO feature added!
+        'current_elo_ratings.csv'
     ]
     
     for file_name in feature_files:
@@ -43,11 +43,9 @@ def build_master_dataset():
             master_df['Country'] = master_df['Country'].str.title()
             master_df = pd.merge(master_df, f_df, on='Country', how='left')
             
-    master_df['FIFA_Rank'] = master_df['FIFA_Rank'].fillna(100)
-    master_df['FIFA_Points'] = master_df['FIFA_Points'].fillna(1000)
     master_df['TM_Value_Rank'] = master_df['Total_Market_Value_mEUR'].rank(ascending=False)
     master_df['Top5_League_Density'] = master_df['Top5_League_Density'].fillna(0.0)
-    master_df['ELO_Rating'] = master_df['ELO_Rating'].fillna(1500.0)  # Default average ELO
+    master_df['ELO_Rating'] = master_df['ELO_Rating'].fillna(1500.0)
             
     master_path = os.path.join(features_dir, 'MASTER_dataset.csv')
     master_df.to_csv(master_path, index=False)
@@ -72,6 +70,7 @@ def create_matchups():
         data_a = df[df['Country'] == team_a].iloc[0]
         data_b = df[df['Country'] == team_b].iloc[0]
         
+        # FIFA-Rankings aus den Deltas entfernt
         matchup_data = {
             'Team_A': team_a,
             'Team_B': team_b,
@@ -82,10 +81,8 @@ def create_matchups():
             'Delta_UCL_Minutes': data_a['Total_UCL_Minutes'] - data_b['Total_UCL_Minutes'],
             'Delta_Tournament_Minutes': data_a['Total_Tournament_Minutes'] - data_b['Total_Tournament_Minutes'],
             'Delta_TM_Value_Rank': data_a['TM_Value_Rank'] - data_b['TM_Value_Rank'],
-            'Delta_FIFA_Rank': data_a['FIFA_Rank'] - data_b['FIFA_Rank'],
-            'Delta_FIFA_Points': data_a['FIFA_Points'] - data_b['FIFA_Points'],
             'Delta_Top5_Density': data_a['Top5_League_Density'] - data_b['Top5_League_Density'],
-            'Delta_Elo': data_a['ELO_Rating'] - data_b['ELO_Rating']  # Matchup ELO delta added!
+            'Delta_Elo': data_a['ELO_Rating'] - data_b['ELO_Rating']
         }
         matchups.append(matchup_data)
         
@@ -100,7 +97,6 @@ def create_matchups():
 def build_training_data():
     """Generates the final multi-feature training dataset by combining historical ELO matches with team deltas."""
     master_path = os.path.join('data', 'processed', 'features', 'MASTER_dataset.csv')
-    # FINETUNING/ELO: Read from leakage-free historical_elo_matches.csv instead of raw results.csv
     results_path = os.path.join('data', 'processed', 'features', 'historical_elo_matches.csv')
     
     if not os.path.exists(master_path) or not os.path.exists(results_path):
@@ -112,13 +108,13 @@ def build_training_data():
     
     print("Building final training dataset matrix...")
     
-    # Merge on Team A and Team B to calculate historical deltas
     train_df = pd.merge(results_df, master_df, left_on='Team_A', right_on='Country', how='inner')
     train_df = train_df.rename(columns=lambda x: f"{x}_A" if x in master_df.columns else x)
     
     train_df = pd.merge(train_df, master_df, left_on='Team_B', right_on='Country', how='inner')
     train_df = train_df.rename(columns=lambda x: f"{x}_B" if x in master_df.columns else x)
     
+    # FIFA-Deltas restlos entfernt
     train_df['Delta_Total_Market_Value'] = train_df['Total_Market_Value_mEUR_A'] - train_df['Total_Market_Value_mEUR_B']
     train_df['Delta_Median_Top11_Value'] = train_df['Median_Top11_Market_Value_mEUR_A'] - train_df['Median_Top11_Market_Value_mEUR_B']
     train_df['Delta_Chemistry'] = train_df['Chemistry_Score_A'] - train_df['Chemistry_Score_B']
@@ -126,28 +122,31 @@ def build_training_data():
     train_df['Delta_UCL_Minutes'] = train_df['Total_UCL_Minutes_A'] - train_df['Total_UCL_Minutes_B']
     train_df['Delta_Tournament_Minutes'] = train_df['Total_Tournament_Minutes_A'] - train_df['Total_Tournament_Minutes_B']
     train_df['Delta_TM_Value_Rank'] = train_df['TM_Value_Rank_A'] - train_df['TM_Value_Rank_B']
-    train_df['Delta_FIFA_Rank'] = train_df['FIFA_Rank_A'] - train_df['FIFA_Rank_B']
-    train_df['Delta_FIFA_Points'] = train_df['FIFA_Points_A'] - train_df['FIFA_Points_B']
     train_df['Delta_Top5_Density'] = train_df['Top5_League_Density_A'] - train_df['Top5_League_Density_B']
     
-    train_df['Is_Neutral'] = train_df['neutral'].astype(int)
+    train_df['Is_Neutral'] = train_df['neutral'].astype(int) if 'neutral' in train_df.columns else 0
     
     features = [
         'Delta_Total_Market_Value', 'Delta_Median_Top11_Value', 'Delta_Chemistry',
         'Delta_Form_Rating', 'Delta_UCL_Minutes', 'Delta_Tournament_Minutes',
-        'Delta_TM_Value_Rank', 'Delta_FIFA_Rank', 'Delta_FIFA_Points', 'Delta_Top5_Density',
-        'Delta_Elo',  # Pre-match ELO delta from historical_elo_matches is leakage-free!
+        'Delta_TM_Value_Rank', 'Delta_Top5_Density',
+        'Delta_Elo',
         'Is_Neutral'
     ]
     
     final_cols = ['date', 'Team_A', 'Team_B', 'home_score', 'away_score', 'target'] + features
     final_train_df = train_df[final_cols].copy()
     
-    # Filter training data to 2018+ to keep the training window focused on modern eras while using ELO stabilized since 2010
+    # FIX: Data Leakage (Zeitreisen) verhindern. 
+    # Wir trainieren nur auf Daten ab 2023, da unsere Marktwerte und Kader-Stats von 2026 für Spiele vor 2023 nicht mehr repräsentativ sind.
     final_train_df['date'] = pd.to_datetime(final_train_df['date'])
     final_train_df = final_train_df[final_train_df['date'].dt.year >= 2018].copy()
     
     out_dir = os.path.join('data', 'processed', 'model_input')
     os.makedirs(out_dir, exist_ok=True)
-    final_train_df.to_csv(os.path.join(out_dir, 'training_data.csv'), index=False)
-    print(f"-> Training dataset matrix creation complete. ({len(final_train_df)} training samples since 2018).")
+    
+    # Sichergehen, dass die Datei existiert und sauber überschrieben wird
+    out_path = os.path.join(out_dir, 'training_data.csv')
+    final_train_df.to_csv(out_path, index=False)
+    
+    print(f"-> Training dataset matrix creation complete. ({len(final_train_df)} clean training samples since 2023).")

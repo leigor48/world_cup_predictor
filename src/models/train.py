@@ -29,11 +29,11 @@ def train_model(model_name="xgboost_wm_modelV4.joblib", use_tuning=False):
     df['days_ago'] = (latest_date - df['date']).dt.days
     df['match_weight'] = np.exp(-df['days_ago'] / 1000)
     
-    # ELO & FINETUNING: Feature set incorporates ELO alongside traditional markers
+    # ELO & FINETUNING: Feature set incorporates ELO alongside traditional markers (FIFA removed)
     features = [
         'Delta_Total_Market_Value', 'Delta_Median_Top11_Value', 'Delta_Chemistry',
         'Delta_Form_Rating', 'Delta_UCL_Minutes', 'Delta_Tournament_Minutes',
-        'Delta_TM_Value_Rank', 'Delta_FIFA_Rank', 'Delta_FIFA_Points', 'Delta_Top5_Density',
+        'Delta_TM_Value_Rank', 'Delta_Top5_Density',
         'Delta_Elo',  # Added dynamic ELO!
         'Is_Neutral' 
     ]
@@ -138,7 +138,7 @@ def evaluate_saved_model(model_name="xgboost_wm_modelV4.joblib"):
     features = [
         'Delta_Total_Market_Value', 'Delta_Median_Top11_Value', 'Delta_Chemistry',
         'Delta_Form_Rating', 'Delta_UCL_Minutes', 'Delta_Tournament_Minutes',
-        'Delta_TM_Value_Rank', 'Delta_FIFA_Rank', 'Delta_FIFA_Points', 'Delta_Top5_Density',
+        'Delta_TM_Value_Rank', 'Delta_Top5_Density',
         'Delta_Elo',  # Added dynamic ELO!
         'Is_Neutral' 
     ]
@@ -219,7 +219,7 @@ def compare_models():
     features = [
         'Delta_Total_Market_Value', 'Delta_Median_Top11_Value', 'Delta_Chemistry',
         'Delta_Form_Rating', 'Delta_UCL_Minutes', 'Delta_Tournament_Minutes',
-        'Delta_TM_Value_Rank', 'Delta_FIFA_Rank', 'Delta_FIFA_Points', 'Delta_Top5_Density',
+        'Delta_TM_Value_Rank', 'Delta_Top5_Density',
         'Delta_Elo',  # Added dynamic ELO!
         'Is_Neutral' 
     ]
