@@ -35,10 +35,12 @@ def simulate_tournament(model_name="xgboost_wm_modelV4.joblib", num_simulations=
         'L': ['England', 'Croatia', 'Ghana', 'Panama']
     }
     
+    # ELO & FINETUNING: Feature set matches train.py exactly
     features = [
         'Delta_Total_Market_Value', 'Delta_Median_Top11_Value', 'Delta_Chemistry',
         'Delta_Form_Rating', 'Delta_UCL_Minutes', 'Delta_Tournament_Minutes',
         'Delta_TM_Value_Rank', 'Delta_FIFA_Rank', 'Delta_FIFA_Points', 'Delta_Top5_Density',
+        'Delta_Elo',
         'Is_Neutral'
     ]
     
@@ -46,6 +48,9 @@ def simulate_tournament(model_name="xgboost_wm_modelV4.joblib", num_simulations=
     
     # 2026 hosts
     hosts = ['usa', 'canada', 'mexico']
+    
+    print(f"Pre-calculating pairwise probabilities for all {len(all_teams) * (len(all_teams) - 1) // 2} matchups using {model_name}...")
+    print("🌍 Smart Host Advantage: USA, Canada, and Mexico play with home advantage (Is_Neutral=0)")
     
     match_probs = {}
     team_fifa_points = {}
@@ -81,10 +86,12 @@ def simulate_tournament(model_name="xgboost_wm_modelV4.joblib", num_simulations=
             'Delta_Chemistry': data_home['Chemistry_Score'] - data_away['Chemistry_Score'],
             'Delta_Form_Rating': data_home['Current_Form_Rating'] - data_away['Current_Form_Rating'],
             'Delta_UCL_Minutes': data_home['Total_UCL_Minutes'] - data_away['Total_UCL_Minutes'],
-            'Delta_Tournament_Minutes': data_home['Total_Tournament_Minutes'] - data_away['Total_Tournament_Minutes'],            'Delta_TM_Value_Rank': data_home['TM_Value_Rank'] - data_away['TM_Value_Rank'],
+            'Delta_Tournament_Minutes': data_home['Total_Tournament_Minutes'] - data_away['Total_Tournament_Minutes'],
+            'Delta_TM_Value_Rank': data_home['TM_Value_Rank'] - data_away['TM_Value_Rank'],
             'Delta_FIFA_Rank': data_home['FIFA_Rank'] - data_away['FIFA_Rank'],
             'Delta_FIFA_Points': data_home['FIFA_Points'] - data_away['FIFA_Points'],
             'Delta_Top5_Density': data_home['Top5_League_Density'] - data_away['Top5_League_Density'],
+            'Delta_Elo': data_home['ELO_Rating'] - data_away['ELO_Rating'],
             'Is_Neutral': is_neutral
         }
         X_pred = pd.DataFrame([delta_dict])[features]

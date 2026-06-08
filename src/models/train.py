@@ -29,11 +29,12 @@ def train_model(model_name="xgboost_wm_modelV4.joblib", use_tuning=False):
     df['days_ago'] = (latest_date - df['date']).dt.days
     df['match_weight'] = np.exp(-df['days_ago'] / 1000)
     
-    # FINETUNING: Removed non-significant Delta_Average_Age, added Delta_Top5_Density
+    # ELO & FINETUNING: Feature set incorporates ELO alongside traditional markers
     features = [
         'Delta_Total_Market_Value', 'Delta_Median_Top11_Value', 'Delta_Chemistry',
         'Delta_Form_Rating', 'Delta_UCL_Minutes', 'Delta_Tournament_Minutes',
         'Delta_TM_Value_Rank', 'Delta_FIFA_Rank', 'Delta_FIFA_Points', 'Delta_Top5_Density',
+        'Delta_Elo',  # Added dynamic ELO!
         'Is_Neutral' 
     ]
     
@@ -47,7 +48,6 @@ def train_model(model_name="xgboost_wm_modelV4.joblib", use_tuning=False):
     )
     
     # FINETUNING: Draw Balance (Increase sample weights of draws (class 1) to solve the draw recall problem)
-    # Since draws make up roughly 24% of outcomes, scaling up their weights forces the trees to learn draw boundaries.
     draw_multiplier = 1.35
     w_train_adjusted = w_train.copy()
     w_train_adjusted[y_train == 1] = w_train_adjusted[y_train == 1] * draw_multiplier
@@ -56,7 +56,6 @@ def train_model(model_name="xgboost_wm_modelV4.joblib", use_tuning=False):
     
     if use_tuning:
         console.print("[bold yellow]Running Fine-Tuned Hyperparameter Optimization via GridSearchCV...[/bold yellow]")
-        # FINETUNING: Expanded search grid with colsample_bytree and regularization
         param_grid = {
             'max_depth': [3, 4, 5],
             'learning_rate': [0.01, 0.03, 0.05],
@@ -83,14 +82,12 @@ def train_model(model_name="xgboost_wm_modelV4.joblib", use_tuning=False):
             verbose=1
         )
         
-        # Fit GridSearchCV with training weights passed to fit
         grid_search.fit(X_train, y_train, sample_weight=w_train_adjusted)
         console.print("[bold green]Tuning completed successfully.[/bold green]")
         console.print(f"Best Parameters: {grid_search.best_params_}")
         best_model = grid_search.best_estimator_
     else:
-        # FINETUNING: Fine-tuned optimal default hyperparameters with colsample restriction
-        console.print("[bold cyan]Training model with optimized fine-tuned hyperparameters...[/bold cyan]")
+        console.print("[bold cyan]Training model with optimized fine-tuned ELO hyperparameters...[/bold cyan]")
         best_model = xgb.XGBClassifier(
             objective='multi:softprob',
             num_class=3,
@@ -142,6 +139,7 @@ def evaluate_saved_model(model_name="xgboost_wm_modelV4.joblib"):
         'Delta_Total_Market_Value', 'Delta_Median_Top11_Value', 'Delta_Chemistry',
         'Delta_Form_Rating', 'Delta_UCL_Minutes', 'Delta_Tournament_Minutes',
         'Delta_TM_Value_Rank', 'Delta_FIFA_Rank', 'Delta_FIFA_Points', 'Delta_Top5_Density',
+        'Delta_Elo',  # Added dynamic ELO!
         'Is_Neutral' 
     ]
     
@@ -222,6 +220,7 @@ def compare_models():
         'Delta_Total_Market_Value', 'Delta_Median_Top11_Value', 'Delta_Chemistry',
         'Delta_Form_Rating', 'Delta_UCL_Minutes', 'Delta_Tournament_Minutes',
         'Delta_TM_Value_Rank', 'Delta_FIFA_Rank', 'Delta_FIFA_Points', 'Delta_Top5_Density',
+        'Delta_Elo',  # Added dynamic ELO!
         'Is_Neutral' 
     ]
     X = df[features]

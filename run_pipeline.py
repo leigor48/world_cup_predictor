@@ -91,10 +91,12 @@ def main():
             from src.features.dataset import (
                 build_master_dataset, create_matchups, build_training_data
             )
+            from src.features.elo_calculator import calculate_elo_ratings
             
             print_banner("RUNNING FEATURE ENGINEERING & DATASET GENERATION")
             
             if args.command == "all" or args.step in ["engineering", "all"]:
+                # 1. Fetch raw rankings/stats
                 scrape_fifa_ranking()
                 clean_market_values()
                 calculate_club_chemistry()
@@ -102,7 +104,11 @@ def main():
                 calculate_ucl_experience()
                 calculate_tournament_experience()
                 
+                # 2. Dynamic zero-sum ELO ratings calculation (stabilized chronologically since 2010)
+                calculate_elo_ratings()
+                
             if args.command == "all" or args.step in ["dataset", "all"]:
+                # 3. Build training sets and matchup matrices incorporating ELO Deltas
                 build_master_dataset()
                 create_matchups()
                 build_training_data()

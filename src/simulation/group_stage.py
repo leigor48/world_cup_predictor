@@ -37,7 +37,8 @@ def simulate_group_stage(model_name="xgboost_wm_modelV4.joblib"):
     features = [
         'Delta_Total_Market_Value', 'Delta_Median_Top11_Value', 'Delta_Chemistry',
         'Delta_Form_Rating', 'Delta_UCL_Minutes', 'Delta_Tournament_Minutes',
-        'Delta_Average_Age', 'Delta_TM_Value_Rank', 'Delta_FIFA_Rank', 'Delta_FIFA_Points',
+        'Delta_TM_Value_Rank', 'Delta_FIFA_Rank', 'Delta_FIFA_Points', 'Delta_Top5_Density',
+        'Delta_Elo',
         'Is_Neutral'
     ]
     
@@ -93,6 +94,7 @@ def simulate_group_stage(model_name="xgboost_wm_modelV4.joblib"):
                 'Delta_FIFA_Rank': data_home['FIFA_Rank'] - data_away['FIFA_Rank'],
                 'Delta_FIFA_Points': data_home['FIFA_Points'] - data_away['FIFA_Points'],
                 'Delta_Top5_Density': data_home['Top5_League_Density'] - data_away['Top5_League_Density'],
+                'Delta_Elo': data_home['ELO_Rating'] - data_away['ELO_Rating'],
                 'Is_Neutral': is_neutral
             }
             
