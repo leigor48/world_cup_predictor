@@ -17,7 +17,26 @@ def simulate_tournament(model_name="xgboost_wm_modelV4.joblib", num_simulations=
         print("Error: MASTER_dataset.csv missing.")
         return
         
-    model = joblib.load(model_path)
+    loaded = joblib.load(model_path)
+
+    if isinstance(loaded, dict):
+        model = loaded["model"]
+        features = loaded.get("features")
+    else:
+        model = loaded
+        features = [
+            'Delta_Total_Market_Value',
+            'Delta_Median_Top11_Value',
+            'Delta_Chemistry',
+            'Delta_Form_Rating',
+            'Delta_UCL_Minutes',
+            'Delta_Tournament_Minutes',
+            'Delta_TM_Value_Rank',
+            'Delta_Top5_Density',
+            'Delta_Elo',
+            'Is_Neutral'
+        ]
+
     master_df = pd.read_csv(master_path)
     
     groups = {

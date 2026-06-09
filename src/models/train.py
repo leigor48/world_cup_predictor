@@ -268,7 +268,12 @@ def compare_models():
     for filename in sorted(files):
         model_path = os.path.join(models_dir, filename)
         try:
-            model = joblib.load(model_path)
+            loaded_data = joblib.load(model_path)
+            if isinstance(loaded_data, dict):
+                model = loaded_data['model']
+            else:
+                model = loaded_data
+            
             y_pred = model.predict(X_test)
             accuracy = accuracy_score(y_test, y_pred)
             
